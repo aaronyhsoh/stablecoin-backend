@@ -2,20 +2,11 @@ package com.stablecoinbackend.demo.services.impl;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import com.stablecoinbackend.demo.dto.request.IssuanceApproveRequestDto;
-import com.stablecoinbackend.demo.dto.request.IssuanceRejectRequestDto;
-import com.stablecoinbackend.demo.dto.request.IssuanceSubmitRequestDto;
-import com.stablecoinbackend.demo.dto.response.CashBalanceResponseDto;
-import com.stablecoinbackend.demo.dto.response.IssuanceApproveResponseDto;
-import com.stablecoinbackend.demo.dto.response.IssuanceRejectResponseDto;
-import com.stablecoinbackend.demo.dto.response.WalletBalanceResponseDto;
-import com.stablecoinbackend.demo.entities.CashBalance;
-import com.stablecoinbackend.demo.entities.IssuanceStatus;
-import com.stablecoinbackend.demo.entities.WalletBalance;
+import com.stablecoinbackend.demo.dto.request.*;
+import com.stablecoinbackend.demo.dto.response.*;
+import com.stablecoinbackend.demo.entities.*;
 import com.stablecoinbackend.demo.enums.Enums;
-import com.stablecoinbackend.demo.repository.CashBalanceRepository;
-import com.stablecoinbackend.demo.repository.IssuanceStatusRepository;
-import com.stablecoinbackend.demo.repository.WalletBalanceRepository;
+import com.stablecoinbackend.demo.repository.*;
 import com.stablecoinbackend.demo.services.FireflyService;
 import okhttp3.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,9 +14,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.math.BigInteger;
 import java.util.List;
-import java.util.Optional;
 
 @Service
 public class FireflyServiceImpl implements FireflyService {
@@ -38,8 +27,19 @@ public class FireflyServiceImpl implements FireflyService {
     @Autowired
     CashBalanceRepository cashBalanceRepository;
 
-    public List<IssuanceStatus> getAllPendingIssuanceRequests() {
-        List<IssuanceStatus> pendingList = issuanceStatusRepository.findByApprovalStatus(Enums.ApprovalStatus.PENDING);
+    @Autowired
+    RedemptionStatusRepository redemptionStatusRepository;
+
+    @Autowired
+    TransferLogRepository transferLogRepository;
+
+    public List<IssuanceStatus> getAllIssuanceRequestsByUserId(String userId) {
+        List<IssuanceStatus> pendingList = issuanceStatusRepository.findByUserId(userId);
+        return pendingList;
+    }
+
+    public List<IssuanceStatus> getAllIssuanceRequests() {
+        List<IssuanceStatus> pendingList = issuanceStatusRepository.findAll();
         return pendingList;
     }
 
@@ -79,7 +79,7 @@ public class FireflyServiceImpl implements FireflyService {
             if (issuanceStatus != null) {
                 OkHttpClient client = new OkHttpClient().newBuilder()
                         .build();
-                String amountString = Integer.toString(issuanceStatus.getAmount().multiply(BigDecimal.TEN.pow(18)).intValue());
+                String amountString = issuanceStatus.getAmount().multiply(BigDecimal.TEN.pow(18)).toBigInteger().toString();
                 System.out.println(amountString);
                 MediaType mediaType = MediaType.parse("application/json");
                 RequestBody body = RequestBody.create(mediaType, "{\"pool\": \"SPDBSC\", \"amount\":\"" + amountString + "\", \"tokenIndex\": \"\", \"messagingMethod\": null}");
@@ -98,7 +98,7 @@ public class FireflyServiceImpl implements FireflyService {
                     issuanceStatusRepository.save(issuanceStatus);
                     responseDto.setIssuanceId(tokenTransferId);
                     responseDto.setSuccess(true);
-                    List<WalletBalance> testingBalance = walletBalanceRepository.findByUserIdAndPool(dto.getUserId(), dto.getPool());
+                    //List<WalletBalance> testingBalance = walletBalanceRepository.findByUserIdAndPool(dto.getUserId(), dto.getPool());
 
                     WalletBalance coinBalance = walletBalanceRepository.findOneByUserIdAndPool(dto.getUserId(), dto.getPool());
                     if (coinBalance == null) {
@@ -141,5 +141,62 @@ public class FireflyServiceImpl implements FireflyService {
         responseDto.setCashBalanceList(cashBalanceList);
         responseDto.setMessage("");
         return responseDto;
+    }
+
+    public RedemptionSubmitResponseDto submitRedemptionRequest(RedemptionSubmitRequestDto dto) {
+        WalletBalance walletBalance = walletBalanceRepository.findByUserIdAndPool(dto.getUserId(), dto.getPool());
+        RedemptionSubmitResponseDto responseDto = new RedemptionSubmitResponseDto();
+        if (walletBalance != null) {
+            if (walletBalance.getAmount().subtract(dto.getAmount()).compareTo(BigDecimal.ZERO) == 1) {
+                RedemptionStatus redemptionStatus = new RedemptionStatus();
+                redemptionStatus.setAmount(dto.getAmount());
+                redemptionStatus.setPool(dto.getPool());
+                redemptionStatus.setUserId(dto.getUserId());
+                redemptionStatus.setApprovalStatus(Enums.ApprovalStatus.PENDING);
+                redemptionStatusRepository.save(redemptionStatus);
+                responseDto.setSuccess(true);
+                responseDto.setMessage("");
+            } else {
+                responseDto.setSuccess(false);
+                responseDto.setMessage("Insufficient amount to redeem");
+            }
+        } else {
+            responseDto.setSuccess(false);
+            responseDto.setMessage("Invalid request");
+        }
+
+        return responseDto;
+    }
+
+    public void transferToken(TransferTokenRequestDto dto) {
+        WalletBalance senderBalance = walletBalanceRepository.findOneByUserIdAndPool(dto.getFrom(), dto.getPool());
+        WalletBalance receiverBalance = walletBalanceRepository.findOneByUserIdAndPool(dto.getTo(), dto.getPool());
+        if (senderBalance != null && (senderBalance.getAmount().compareTo(dto.getAmount()) >= 0)) {
+            // call firefly transfer API
+
+
+            TransferLog transferLog = new TransferLog();
+            transferLog.setAmount(dto.getAmount());
+            transferLog.setPool(dto.getPool());
+            transferLog.setCurrency(dto.getCurrency());
+            transferLog.setUserId(dto.getFrom());
+            transferLogRepository.save(transferLog);
+
+            senderBalance.setAmount(senderBalance.getAmount().subtract(dto.getAmount()));
+            walletBalanceRepository.save(senderBalance);
+
+            if (receiverBalance == null) {
+                receiverBalance = new WalletBalance();
+                receiverBalance.setPool(dto.getPool());
+                receiverBalance.setCurrency(dto.getCurrency());
+                receiverBalance.setAmount(dto.getAmount());
+                receiverBalance.setUserId(dto.getTo());
+            } else {
+                receiverBalance.setAmount(receiverBalance.getAmount().add(dto.getAmount()));
+            }
+            walletBalanceRepository.save(receiverBalance);
+
+        }
+
     }
 }

@@ -12,6 +12,8 @@ import java.util.Optional;
 public interface IssuanceStatusRepository extends JpaRepository<IssuanceStatus, Integer> {
     public List<IssuanceStatus> findByApprovalStatus(Enums.ApprovalStatus approvalStatus);
 
+    public List<IssuanceStatus> findByUserId(String userId);
+
     public IssuanceStatus findByIdAndApprovalStatus(int id, Enums.ApprovalStatus approvalStatus);
 
 

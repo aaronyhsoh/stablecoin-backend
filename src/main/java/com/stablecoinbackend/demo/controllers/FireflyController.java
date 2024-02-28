@@ -1,14 +1,7 @@
 package com.stablecoinbackend.demo.controllers;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonObject;
-import com.stablecoinbackend.demo.dto.request.IssuanceApproveRequestDto;
-import com.stablecoinbackend.demo.dto.request.IssuanceRejectRequestDto;
-import com.stablecoinbackend.demo.dto.request.IssuanceSubmitRequestDto;
-import com.stablecoinbackend.demo.dto.response.CashBalanceResponseDto;
-import com.stablecoinbackend.demo.dto.response.IssuanceApproveResponseDto;
-import com.stablecoinbackend.demo.dto.response.IssuanceRejectResponseDto;
-import com.stablecoinbackend.demo.dto.response.WalletBalanceResponseDto;
+import com.stablecoinbackend.demo.dto.request.*;
+import com.stablecoinbackend.demo.dto.response.*;
 import com.stablecoinbackend.demo.entities.IssuanceStatus;
 import com.stablecoinbackend.demo.services.FireflyService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,9 +24,9 @@ public class FireflyController {
         return ResponseEntity.ok().build();
     }
 
-    @GetMapping("/query/issuance/pending")
-    public ResponseEntity getPendingIssuanceRequests() {
-        List<IssuanceStatus> pendingList = fireflyService.getAllPendingIssuanceRequests();
+    @GetMapping("/query/issuance/pending/{userId}")
+    public ResponseEntity getPendingIssuanceRequests(@PathVariable String userId) {
+        List<IssuanceStatus> pendingList = fireflyService.getAllIssuanceRequestsByUserId(userId);
         return ResponseEntity.ok(pendingList);
     }
 
@@ -41,7 +34,6 @@ public class FireflyController {
     public ResponseEntity submitIssuanceApprove(@RequestBody IssuanceApproveRequestDto dto) throws IOException {
         IssuanceApproveResponseDto responseDto = fireflyService.issueToken(dto);
         if (responseDto.isSuccess()) {
-            Gson gson = new Gson();
             return ResponseEntity.ok(responseDto);
         } else {
             return ResponseEntity.internalServerError().body(responseDto);
@@ -52,7 +44,6 @@ public class FireflyController {
     public ResponseEntity submitIssuanceReject(@RequestBody IssuanceRejectRequestDto dto) {
         IssuanceRejectResponseDto responseDto = fireflyService.rejectToken(dto);
         if (responseDto.isSuccess()) {
-            Gson gson = new Gson();
             return ResponseEntity.ok(responseDto);
         } else {
             return ResponseEntity.internalServerError().body(responseDto);
@@ -69,5 +60,24 @@ public class FireflyController {
     public ResponseEntity queryCashBalance(@PathVariable String userId) {
         CashBalanceResponseDto responseDto = fireflyService.queryCashBalance(userId);
         return ResponseEntity.ok(responseDto);
+    }
+
+    @PostMapping("/submit/redemption/request")
+    public ResponseEntity redemptionRequest(@RequestBody RedemptionSubmitRequestDto dto) {
+        RedemptionSubmitResponseDto responseDto = fireflyService.submitRedemptionRequest(dto);
+
+        return ResponseEntity.ok(responseDto);
+    }
+
+    @GetMapping("/query/issuance/admin")
+    public ResponseEntity queryAllIssuance() {
+        List<IssuanceStatus> pendingList = fireflyService.getAllIssuanceRequests();
+        return ResponseEntity.ok(pendingList);
+    }
+
+    @PostMapping("/submit/transfer")
+    public ResponseEntity transferToken(@RequestBody TransferTokenRequestDto dto) {
+        fireflyService.transferToken(dto);
+        return ResponseEntity.ok().build();
     }
 }
