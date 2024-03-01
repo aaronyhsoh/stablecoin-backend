@@ -3,6 +3,7 @@ package com.stablecoinbackend.demo.controllers;
 import com.stablecoinbackend.demo.dto.request.*;
 import com.stablecoinbackend.demo.dto.response.*;
 import com.stablecoinbackend.demo.entities.IssuanceStatus;
+import com.stablecoinbackend.demo.entities.RedemptionStatus;
 import com.stablecoinbackend.demo.services.FireflyService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -76,8 +77,24 @@ public class FireflyController {
     }
 
     @PostMapping("/submit/transfer")
-    public ResponseEntity transferToken(@RequestBody TransferTokenRequestDto dto) {
-        fireflyService.transferToken(dto);
-        return ResponseEntity.ok().build();
+    public ResponseEntity transferToken(@RequestBody TransferTokenRequestDto dto) throws IOException {
+        TransferTokenResponseDto responseDto = fireflyService.transferToken(dto);
+        return ResponseEntity.ok(responseDto);
+    }
+
+    @GetMapping("/query/redemption/admin")
+    public ResponseEntity queryAllRedemptions() {
+        List<RedemptionStatus> redemptionStatusList = fireflyService.queryAllRedemptionStatus();
+        return ResponseEntity.ok(redemptionStatusList);
+    }
+
+    @PostMapping("/submit/redemption/approve")
+    public ResponseEntity submitRedemptionApprove(@RequestBody RedemptionApproveRequestDto dto) throws IOException {
+        RedemptionApproveResponseDto responseDto = fireflyService.approveRedemption(dto);
+        if (responseDto.isSuccess()) {
+            return ResponseEntity.ok(responseDto);
+        } else {
+            return ResponseEntity.internalServerError().body(responseDto);
+        }
     }
 }

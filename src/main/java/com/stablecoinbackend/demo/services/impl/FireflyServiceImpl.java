@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class FireflyServiceImpl implements FireflyService {
@@ -32,6 +33,9 @@ public class FireflyServiceImpl implements FireflyService {
 
     @Autowired
     TransferLogRepository transferLogRepository;
+
+    @Autowired
+    UserAddressRepository userAddressRepository;
 
     public List<IssuanceStatus> getAllIssuanceRequestsByUserId(String userId) {
         List<IssuanceStatus> pendingList = issuanceStatusRepository.findByUserId(userId);
@@ -126,6 +130,48 @@ public class FireflyServiceImpl implements FireflyService {
         }
     }
 
+    public RedemptionApproveResponseDto approveRedemption(RedemptionApproveRequestDto dto) throws IOException {
+        WalletBalance userBalance = walletBalanceRepository.findOneByUserIdAndPool(dto.getUserId(), dto.getPool());
+        RedemptionApproveResponseDto responseDto = new RedemptionApproveResponseDto();
+        if (userBalance == null || (userBalance.getAmount().compareTo(dto.getAmount()) < 0)) {
+            responseDto.setSuccess(false);
+            responseDto.setMsg("Invalid amount");
+        } else {
+            String amountString = dto.getAmount().multiply(BigDecimal.TEN.pow(18)).toBigInteger().toString();
+            OkHttpClient client = new OkHttpClient().newBuilder()
+                    .build();
+            MediaType mediaType = MediaType.parse("application/json");
+            RequestBody body = RequestBody.create(mediaType, "{\"pool\":\"" + dto.getPool() + "\",\"amount\":\"" + amountString + "\",\"tokenIndex\":\"\",\"messagingMethod\":null}");
+            Request request = new Request.Builder()
+                    .url("http://127.0.0.1:5309/api/tokens/burn?ns=default")
+                    .method("POST", body)
+                    .addHeader("Content-Type", "application/json")
+                    .build();
+            Response response = client.newCall(request).execute();
+            if (response.isSuccessful()) {
+                Optional<RedemptionStatus> redemptionStatus = redemptionStatusRepository.findById(dto.getId());
+                if (redemptionStatus.isPresent()) {
+                    Gson gson = new Gson();
+                    JsonObject jsonObject = gson.fromJson(response.body().string(), JsonObject.class);
+                    String tokenTransferId = jsonObject.get("id").getAsString();
+                    redemptionStatus.get().setApprovalStatus(Enums.ApprovalStatus.APPROVED);
+                    redemptionStatusRepository.save(redemptionStatus.get());
+
+                    userBalance.setAmount(userBalance.getAmount().subtract(dto.getAmount()));
+                    walletBalanceRepository.save(userBalance);
+
+                    responseDto.setSuccess(true);
+                    responseDto.setBurnId(tokenTransferId);
+                }
+            } else {
+                // return failure msg
+                responseDto.setSuccess(false);
+                responseDto.setMsg("Transaction failed");
+            }
+        }
+        return responseDto;
+    }
+
     public WalletBalanceResponseDto queryWalletBalance(String userId) {
         List<WalletBalance> walletBalanceList = walletBalanceRepository.findByUserId(userId);
         WalletBalanceResponseDto responseDto = new WalletBalanceResponseDto();
@@ -168,35 +214,67 @@ public class FireflyServiceImpl implements FireflyService {
         return responseDto;
     }
 
-    public void transferToken(TransferTokenRequestDto dto) {
+    public List<RedemptionStatus> queryAllRedemptionStatus() {
+        List<RedemptionStatus> redemptionStatusList = redemptionStatusRepository.findAll();
+        return redemptionStatusList;
+    }
+
+    public TransferTokenResponseDto transferToken(TransferTokenRequestDto dto) throws IOException {
         WalletBalance senderBalance = walletBalanceRepository.findOneByUserIdAndPool(dto.getFrom(), dto.getPool());
         WalletBalance receiverBalance = walletBalanceRepository.findOneByUserIdAndPool(dto.getTo(), dto.getPool());
+        TransferTokenResponseDto responseDto = new TransferTokenResponseDto();
         if (senderBalance != null && (senderBalance.getAmount().compareTo(dto.getAmount()) >= 0)) {
             // call firefly transfer API
+            String amountString = dto.getAmount().multiply(BigDecimal.TEN.pow(18)).toBigInteger().toString();
+            UserAddress receiver = userAddressRepository.findOneByUserId(dto.getTo());
+            OkHttpClient client = new OkHttpClient().newBuilder()
+                    .build();
+            MediaType mediaType = MediaType.parse("application/json");
+            RequestBody body = RequestBody.create(mediaType, "{\r\n    \"pool\": \"" + dto.getPool() + "\",\r\n    \"amount\": \"" + amountString + "\",\r\n    \"tokenIndex\": \"\",\r\n    \"to\": \"" + receiver.getWalletAddress() + "\",\r\n    \"messagingMethod\": null\r\n}");
+            Request request = new Request.Builder()
+                    .url("http://localhost:5309/api/tokens/transfer?ns=default")
+                    .method("POST", body)
+                    .addHeader("Content-Type", "application/json")
+                    .build();
+            Response response = client.newCall(request).execute();
+            if (response.isSuccessful()) {
+                Gson gson = new Gson();
+                JsonObject jsonObject = gson.fromJson(response.body().string(), JsonObject.class);
+                String tokenTransferId = jsonObject.get("id").getAsString();
+                TransferLog transferLog = new TransferLog();
+                transferLog.setAmount(dto.getAmount());
+                transferLog.setPool(dto.getPool());
+                transferLog.setCurrency(dto.getCurrency());
+                transferLog.setUserId(dto.getFrom());
+                transferLog.setTransferId(tokenTransferId);
+                transferLogRepository.save(transferLog);
 
+                senderBalance.setAmount(senderBalance.getAmount().subtract(dto.getAmount()));
+                walletBalanceRepository.save(senderBalance);
 
-            TransferLog transferLog = new TransferLog();
-            transferLog.setAmount(dto.getAmount());
-            transferLog.setPool(dto.getPool());
-            transferLog.setCurrency(dto.getCurrency());
-            transferLog.setUserId(dto.getFrom());
-            transferLogRepository.save(transferLog);
-
-            senderBalance.setAmount(senderBalance.getAmount().subtract(dto.getAmount()));
-            walletBalanceRepository.save(senderBalance);
-
-            if (receiverBalance == null) {
-                receiverBalance = new WalletBalance();
-                receiverBalance.setPool(dto.getPool());
-                receiverBalance.setCurrency(dto.getCurrency());
-                receiverBalance.setAmount(dto.getAmount());
-                receiverBalance.setUserId(dto.getTo());
+                if (receiverBalance == null) {
+                    receiverBalance = new WalletBalance();
+                    receiverBalance.setPool(dto.getPool());
+                    receiverBalance.setCurrency(dto.getCurrency());
+                    receiverBalance.setAmount(dto.getAmount());
+                    receiverBalance.setUserId(dto.getTo());
+                } else {
+                    receiverBalance.setAmount(receiverBalance.getAmount().add(dto.getAmount()));
+                }
+                walletBalanceRepository.save(receiverBalance);
+                responseDto.setTransferId(tokenTransferId);
+                responseDto.setSuccess(true);
             } else {
-                receiverBalance.setAmount(receiverBalance.getAmount().add(dto.getAmount()));
+                responseDto.setSuccess(false);
+                responseDto.setMessage("Blockchain transaction faield");
             }
-            walletBalanceRepository.save(receiverBalance);
 
+        } else {
+            responseDto.setSuccess(false);
+            responseDto.setMessage("Insufficient balance");
         }
+
+        return responseDto;
 
     }
 }

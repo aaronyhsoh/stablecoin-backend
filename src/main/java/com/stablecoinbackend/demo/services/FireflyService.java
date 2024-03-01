@@ -3,6 +3,7 @@ package com.stablecoinbackend.demo.services;
 import com.stablecoinbackend.demo.dto.request.*;
 import com.stablecoinbackend.demo.dto.response.*;
 import com.stablecoinbackend.demo.entities.IssuanceStatus;
+import com.stablecoinbackend.demo.entities.RedemptionStatus;
 
 import java.io.IOException;
 import java.util.List;
@@ -22,5 +23,9 @@ public interface FireflyService {
 
     public RedemptionSubmitResponseDto submitRedemptionRequest(RedemptionSubmitRequestDto dto);
 
-    public void transferToken(TransferTokenRequestDto dto);
+    public TransferTokenResponseDto transferToken(TransferTokenRequestDto dto) throws IOException;
+
+    public List<RedemptionStatus> queryAllRedemptionStatus();
+
+    public RedemptionApproveResponseDto approveRedemption(RedemptionApproveRequestDto dto) throws IOException;
 }
