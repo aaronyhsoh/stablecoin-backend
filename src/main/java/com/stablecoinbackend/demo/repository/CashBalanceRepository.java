@@ -12,4 +12,6 @@ import java.util.Optional;
 @Repository
 public interface CashBalanceRepository extends JpaRepository<CashBalance, Integer> {
     public List<CashBalance> findByUserId(String userId);
+
+    public CashBalance findByUserIdAndCurrency(String userId, String currency);
 }

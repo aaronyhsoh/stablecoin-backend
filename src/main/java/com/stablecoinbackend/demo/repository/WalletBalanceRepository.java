@@ -18,4 +18,5 @@ public interface WalletBalanceRepository extends JpaRepository<WalletBalance, In
     public List<WalletBalance> findByUserId(String userId);
 
     public WalletBalance findByUserIdAndPool(String userId, String pool);
+
 }

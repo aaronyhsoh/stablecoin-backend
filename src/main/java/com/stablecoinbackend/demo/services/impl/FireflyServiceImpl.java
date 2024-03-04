@@ -80,6 +80,12 @@ public class FireflyServiceImpl implements FireflyService {
         try {
             IssuanceStatus issuanceStatus = issuanceStatusRepository.findByIdAndApprovalStatus(dto.getIssuanceStatusId(), Enums.ApprovalStatus.PENDING);
             IssuanceApproveResponseDto responseDto = new IssuanceApproveResponseDto();
+            CashBalance cashBalance = cashBalanceRepository.findByUserIdAndCurrency(dto.getUserId(), dto.getCurrency());
+            if (cashBalance == null || (cashBalance.getAmount().compareTo(dto.getAmount())) < 0) {
+                responseDto.setSuccess(false);
+                responseDto.setMessage("Insufficient cash balance to issue");
+                return responseDto;
+            }
             if (issuanceStatus != null) {
                 OkHttpClient client = new OkHttpClient().newBuilder()
                         .build();
@@ -102,7 +108,9 @@ public class FireflyServiceImpl implements FireflyService {
                     issuanceStatusRepository.save(issuanceStatus);
                     responseDto.setIssuanceId(tokenTransferId);
                     responseDto.setSuccess(true);
-                    //List<WalletBalance> testingBalance = walletBalanceRepository.findByUserIdAndPool(dto.getUserId(), dto.getPool());
+
+                    cashBalance.setAmount(cashBalance.getAmount().subtract(dto.getAmount()));
+                    cashBalanceRepository.save(cashBalance);
 
                     WalletBalance coinBalance = walletBalanceRepository.findOneByUserIdAndPool(dto.getUserId(), dto.getPool());
                     if (coinBalance == null) {
@@ -154,11 +162,15 @@ public class FireflyServiceImpl implements FireflyService {
                     Gson gson = new Gson();
                     JsonObject jsonObject = gson.fromJson(response.body().string(), JsonObject.class);
                     String tokenTransferId = jsonObject.get("id").getAsString();
+                    redemptionStatus.get().setBurnId(tokenTransferId);
                     redemptionStatus.get().setApprovalStatus(Enums.ApprovalStatus.APPROVED);
                     redemptionStatusRepository.save(redemptionStatus.get());
 
                     userBalance.setAmount(userBalance.getAmount().subtract(dto.getAmount()));
                     walletBalanceRepository.save(userBalance);
+                    CashBalance cashBalance = cashBalanceRepository.findByUserIdAndCurrency(dto.getUserId(), userBalance.getCurrency());
+                    cashBalance.setAmount(cashBalance.getAmount().add(dto.getAmount()));
+                    cashBalanceRepository.save(cashBalance);
 
                     responseDto.setSuccess(true);
                     responseDto.setBurnId(tokenTransferId);
@@ -193,7 +205,7 @@ public class FireflyServiceImpl implements FireflyService {
         WalletBalance walletBalance = walletBalanceRepository.findByUserIdAndPool(dto.getUserId(), dto.getPool());
         RedemptionSubmitResponseDto responseDto = new RedemptionSubmitResponseDto();
         if (walletBalance != null) {
-            if (walletBalance.getAmount().subtract(dto.getAmount()).compareTo(BigDecimal.ZERO) == 1) {
+            if (walletBalance.getAmount().subtract(dto.getAmount()).compareTo(BigDecimal.ZERO) >= 0) {
                 RedemptionStatus redemptionStatus = new RedemptionStatus();
                 redemptionStatus.setAmount(dto.getAmount());
                 redemptionStatus.setPool(dto.getPool());
